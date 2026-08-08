@@ -14,14 +14,17 @@ Site to PDF sidesteps this entirely. Instead of relying on a browser's print ren
 
 Site to PDF works in two modes: single capture and batch capture.
 
-* **Single** Provide one URL with `--url`. The tool launches a headless browser, loads the page, waits for fonts and any settle time to finish, takes a full-page screenshot, and embeds it into a PDF sized exactly to the screenshot's dimensions.
-* **Batch** Provide a file of URLs with `--input`. The file can be `.csv`, `.md`, or `.txt`, plain URLs one per line, markdown bullet lists, markdown links, or CSV rows with an optional custom filename as a second column. Each URL is captured the same way as single mode, saved into an output directory, and a summary of successes and failures is printed at the end.
+* **Single** Provide one URL with `--url`. The tool launches a headless browser, loads the page, waits for fonts and any settle time to finish, takes a full-page screenshot, and embeds it into a PDF sized exactly to the screenshot's dimensions. 
+
+* **Batch** Provide a file of URLs with `--input`. Each URL is captured the same way as single mode, saved into an output directory, and a summary of successes and failures is printed at the end.
 
 ## Installation & Usage
 
+Install dependencies first, then capture pages with `--url` (single) or `--input` (batch). Add `--auth` to either mode for pages that need login.
+
 ### Setup
 
-Requires Node.js.
+Requires Node.js. Install the dependencies:
 
 ```bash
 npm install
@@ -31,12 +34,12 @@ npm install
 
 Capture one page and save it as a PDF.
 
+- Basic usage, saves to an auto-generated filename based on the URL:
 ```bash
 node capture.js --url https://example.com
 ```
 
-If `--output` isn't provided, the filename is generated from the URL itself (e.g. `example-com.pdf`).
-
+- With a custom output name and retina-quality scale:
 ```bash
 node capture.js --url https://example.com --output site.pdf --scale 2
 ```
@@ -49,13 +52,42 @@ Capture multiple pages from a list of URLs.
 node capture.js --input urls.csv --output-dir ./screenshots --keep-image
 ```
 
-`urls.csv`, `urls.md`, or `urls.txt` can contain:
+`urls.csv`, `urls.md`, or `urls.txt` can contain a mix of:
 * Plain URLs, one per line
 * Markdown bullet lists (`- https://...` or `* https://...`)
-* Markdown links (`[label](https://...)`)
-* CSV rows with an optional custom name (`https://example.com,my-custom-name`)
+* Markdown links (`[label](https://...)`, label ignored)
 
-Each captured file is saved into `--output-dir`, named after either the custom name given in the input file or a slug generated from the URL.
+Each captured file is saved into `--output-dir` and any line can end with `,custom-name` to set that entry's output filename, otherwise it falls back to a slug generated from the URL.
+
+### Authenticated Pages
+
+Add `--auth <path>` to either single or batch capture for pages that need you to be logged in. Since Puppeteer launches a fresh, signed-out browser every run, it has no memory of any login, so pages behind auth would otherwise just show a login screen. This flag injects saved `localStorage` values before capturing to fix that.
+
+```bash
+node capture.js --url https://example.com/dashboard --auth auth.json
+```
+
+**How to build the `auth.json` file:**
+1. Log into the site normally, in your own browser
+2. Open DevTools → Application → Local Storage → find the keys the site uses to store your session (commonly something like an access token and a user object)
+3. Copy the full, untruncated values
+4. Save them into a JSON file:
+
+```json
+{
+  "entries": [
+    { "key": "accessToken", "value": "..." },
+    { "key": "authUser", "value": "..." }
+  ]
+}
+```
+
+A single key also works, without the `entries` wrapper:
+```json
+{ "key": "authUser", "value": "..." }
+```
+
+**Note:** most auth tokens expire quickly, if a page stops authenticating correctly, the token in your `auth.json` has likely expired. Just repeat the copy step with a fresh value.
 
 ## Options
 
@@ -73,26 +105,8 @@ Each captured file is saved into `--output-dir`, named after either the custom n
 | `--timeout <ms>` | Max time to wait for the page to load | `30000` |
 | `--wait <ms>` | Extra settle time for fonts/animations after load | `500` |
 | `--keep-image` | Also save the intermediate PNG screenshot | off |
+| `--auth <path>` | JSON file with saved `localStorage` key/value(s) to inject before capturing, for pages that need login | |
 | `--help`, `-h` | Show usage help | |
-
-You must provide either `--url` or `--input`, but not both.
-
-## Examples
-
-Capture a single page:
-```bash
-node capture.js --url https://example.com
-```
-
-Capture at retina resolution with a custom output name:
-```bash
-node capture.js --url https://example.com --output site.pdf --scale 2
-```
-
-Batch capture a list of URLs into a folder, keeping the PNGs too:
-```bash
-node capture.js --input urls.csv --output-dir ./screenshots --keep-image
-```
 
 ## Under the Hood
 
@@ -102,11 +116,15 @@ node capture.js --input urls.csv --output-dir ./screenshots --keep-image
 4. Embeds that screenshot into a new PDF sized exactly to the image dimensions (no scaling, cropping, or letterboxing).
 5. In batch mode, processes each URL in sequence, auto resolving filename collisions (`name-2.pdf`, `name-3.pdf`, and so on), and prints a summary of successes and failures at the end.
 6. When no custom filename is given, output names are generated by slugifying the URL. For example, `https://example.com/pricing?ref=x` becomes `example-com-pricing.pdf`.
+7. If `--auth` is provided, the target page is visited once, the saved `localStorage` values are injected, and the page is reloaded before the screenshot is taken.
 
-## Notes
+## Notes & Limitations
 
+- Only `http://` and `https://` URLs are currently supported, local files (`file://` or local paths) aren't captured.
+- If your target page and your `capture.js` process are running in different environments (e.g. one in WSL, one on Windows), `localhost` may not resolve between them. Use the actual reachable IP address of the environment hosting the page instead.
 - In batch mode, one failing URL doesn't stop the run. It's logged and the rest continue.
 - Timeouts raise a clear error suggesting you increase `--timeout` or check that the page is reachable.
+- Never commit your `auth.json` (or whatever you name it), it contains real login credentials. Add it to `.gitignore`.
 
 ## Built With
 
